@@ -4783,6 +4783,97 @@ export function inceptionModelManagerOptions(config?: ModelManagerConfig): Model
 }
 
 // ---------------------------------------------------------------------------
+// Sideren
+// ---------------------------------------------------------------------------
+
+/**
+ * A `GET /v1/models` row as Sideren returns it (verified live 2026-10-26):
+ * OpenAI list fields plus the shown `context_window`, the `max_output` cap,
+ * and a `capabilities` block with `tools`, `vision`, `reasoning`, and the
+ * accepted `reasoning_efforts` vocabulary. The `sideren` block carries the
+ * display name, the row `kind` (`chat` or `embedding`), and `access`: whether
+ * the calling key's plan can use the model.
+ */
+interface SiderenModelRecord extends OpenAICompatibleModelRecord {
+	context_window?: unknown;
+	max_output?: unknown;
+	capabilities?: unknown;
+	sideren?: unknown;
+}
+
+/**
+ * Sideren's thinking-off tier. `reasoning_effort: "none"` disables reasoning
+ * on the models that advertise it, so it drives `reasoningDisableMode` and is
+ * never folded into the lowest rung.
+ */
+const SIDEREN_WIRE_EFFORT_NONE = "none";
+
+function siderenWireEfforts(capabilities: Record<string, unknown> | undefined): readonly string[] {
+	const values = capabilities?.reasoning_efforts;
+	return Array.isArray(values) ? values.filter((value): value is string => typeof value === "string") : [];
+}
+
+/**
+ * Discovery keeps only chat rows the key's plan can call: `kind: "embedding"`
+ * rows and rows with `access.allowed: false` are dropped, so the picker never
+ * offers a model that answers `plan_upgrade_required`. Requests draw plan
+ * credits rather than a per-token tariff, so rows carry no cost; the provider
+ * rules mark pricing `included`.
+ */
+function mapSiderenModel(
+	entry: OpenAICompatibleModelRecord,
+	defaults: ModelSpec<"openai-completions">,
+	reference: ModelSpec<"openai-completions"> | undefined,
+): ModelSpec<"openai-completions"> | null {
+	const record = entry as SiderenModelRecord;
+	const meta = isRecord(record.sideren) ? record.sideren : {};
+	if (meta.kind !== undefined && meta.kind !== "chat") return null;
+	if (isRecord(meta.access) && meta.access.allowed === false) return null;
+	const model = mapWithBundledReference(entry, defaults, reference);
+	const capabilities = isRecord(record.capabilities) ? record.capabilities : undefined;
+	const wireEfforts = siderenWireEfforts(capabilities);
+	const efforts = THINKING_EFFORTS.filter(effort => wireEfforts.includes(effort));
+	const reasoning = capabilities ? capabilities.reasoning === true : (model.reasoning ?? false);
+	const thinking: ThinkingConfig | undefined =
+		reasoning && efforts.length > 0 ? { mode: "effort", efforts: [...efforts] } : undefined;
+	return {
+		...model,
+		name: toModelName(meta.display_name, model.name),
+		reasoning,
+		...(thinking && { thinking }),
+		input: capabilities ? (capabilities.vision === true ? ["text", "image"] : ["text"]) : model.input,
+		...(typeof capabilities?.tools === "boolean" && { supportsTools: capabilities.tools }),
+		contextWindow: toPositiveNumber(record.context_window, model.contextWindow),
+		maxTokens: toPositiveNumber(record.max_output, model.maxTokens),
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		...(thinking &&
+			wireEfforts.includes(SIDEREN_WIRE_EFFORT_NONE) && {
+				compat: { ...model.compat, reasoningDisableMode: "none-effort" as const },
+			}),
+	};
+}
+
+/**
+ * Sideren's gateway catalog. `/v1/models` needs the key, so a keyless config
+ * serves the bundled reviewed seed rows; with a key, live rows are
+ * authoritative over the bundle.
+ */
+export function siderenModelManagerOptions(config?: ModelManagerConfig): ModelManagerOptions<"openai-completions"> {
+	return {
+		...createOpenAICompatibleModelManagerOptions({
+			api: "openai-completions",
+			providerId: "sideren",
+			defaultBaseUrl: "https://api.sideren.io/v1",
+			config,
+			requireApiKey: true,
+			dynamicModelsAuthoritative: true,
+			mapModel: mapSiderenModel,
+		}),
+		staticModels: seedModels<"openai-completions">("sideren"),
+	};
+}
+
+// ---------------------------------------------------------------------------
 // 15.5 CoreWeave Serverless Inference
 // ---------------------------------------------------------------------------
 
