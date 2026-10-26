@@ -3,6 +3,10 @@ import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { seedModels } from "@oh-my-pi/pi-catalog/compat/providers";
 import { Effort } from "@oh-my-pi/pi-catalog/effort";
 import { resolveProviderModels } from "@oh-my-pi/pi-catalog/model-manager";
+import {
+	isCredentialScopedModelCacheProvider,
+	resolveModelCacheProviderId,
+} from "@oh-my-pi/pi-catalog/provider-models/cache-provider-id";
 import { siderenModelManagerOptions } from "@oh-my-pi/pi-catalog/provider-models/openai-compat";
 import { TempDir } from "@oh-my-pi/pi-utils";
 
@@ -90,7 +94,76 @@ describe("Sideren model discovery", () => {
 		const [discovered] = (await options.fetchDynamicModels?.()) ?? [];
 		const model = buildModel(discovered!);
 		expect(model).toMatchObject({ name: "GLM 5.3", input: ["text"], pricingStatus: "included", reasoning: true });
-		expect(model.compat?.reasoningDisableMode).not.toBe("none-effort");
+		expect(model.compat?.reasoningDisableMode).toBe("lowest-effort");
+	});
+
+	test("keeps Sideren's 272K GPT-5.4 window over the class-wide 1M patch", async () => {
+		const seed = seedModels("sideren").find(model => model.id === "gpt-5.4");
+		expect(buildModel(seed!).contextWindow).toBe(272_000);
+
+		const options = siderenModelManagerOptions({
+			apiKey: "sdn_test_key",
+			fetch: async () =>
+				Response.json({
+					data: [
+						row("gpt-5.4", {
+							max_output: 128_000,
+							sideren: { kind: "chat", display_name: "GPT-5.4", access: { allowed: true } },
+						}),
+					],
+				}),
+		});
+		const [discovered] = (await options.fetchDynamicModels?.()) ?? [];
+		expect(buildModel(discovered!).contextWindow).toBe(272_000);
+	});
+
+	test("clears the reference ladder when a row reports no usable effort", async () => {
+		const options = siderenModelManagerOptions({
+			apiKey: "sdn_test_key",
+			fetch: async () =>
+				Response.json({
+					data: [
+						row("@sdn/glm-5.3", {
+							capabilities: { tools: true, vision: false, reasoning: true, reasoning_efforts: ["none"] },
+							sideren: { kind: "chat", display_name: "GLM 5.3", access: { allowed: true } },
+						}),
+					],
+				}),
+		});
+		const [discovered] = (await options.fetchDynamicModels?.()) ?? [];
+		const model = buildModel(discovered!);
+		expect(model.thinking).toBeUndefined();
+		expect(model.compat?.trustExplicitThinkingOnly).toBe(true);
+	});
+
+	test("keeps a live capability downgrade over the seed row", async () => {
+		await using temp = await TempDir.create("@sideren-downgrade-");
+		const options = {
+			...siderenModelManagerOptions({
+				apiKey: "sdn_test_key",
+				fetch: async () =>
+					Response.json({
+						data: [
+							row("@sdn/deepseek-v4.1-flash-1017", {
+								capabilities: { tools: true, vision: false, reasoning: false, reasoning_efforts: [] },
+							}),
+						],
+					}),
+			}),
+			cacheDbPath: temp.join("models.db"),
+		};
+		const { models } = await resolveProviderModels(options, "online");
+		expect(models.find(model => model.id === "@sdn/deepseek-v4.1-flash-1017")).toMatchObject({
+			input: ["text"],
+			reasoning: false,
+		});
+	});
+
+	test("scopes the model cache to the key", () => {
+		expect(isCredentialScopedModelCacheProvider("sideren")).toBe(true);
+		const first = resolveModelCacheProviderId("sideren", { apiKey: "sdn_a" });
+		expect(first).not.toBe(resolveModelCacheProviderId("sideren", { apiKey: "sdn_b" }));
+		expect(siderenModelManagerOptions({ apiKey: "sdn_a" }).cacheProviderId).toBe(first);
 	});
 
 	test("serves the bundled seed without a key and keeps the live roster through an outage", async () => {

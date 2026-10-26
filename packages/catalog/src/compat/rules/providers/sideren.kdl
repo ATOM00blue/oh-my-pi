@@ -231,6 +231,15 @@ provider "sideren" {
 		reasoning-disable-mode "none-effort"
 	}
 
+	// Sideren serves GPT-5.4 with a 272K window (its `/v1/models` row), so the
+	// class-wide 1M window patch and uncapped long-context window do not apply.
+	class "openai" {
+		models "gpt-5.4" {
+			limits-patch {}
+			long-context-window-uncapped #false
+		}
+	}
+
 	// Gateway request dialect: plain Chat Completions. The gateway accepts
 	// `developer`, `store` and `max_completion_tokens` (verified 2026-10-26)
 	// but translates per upstream, so send the portable shapes.

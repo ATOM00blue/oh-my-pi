@@ -4832,24 +4832,29 @@ function mapSiderenModel(
 	const model = mapWithBundledReference(entry, defaults, reference);
 	const capabilities = isRecord(record.capabilities) ? record.capabilities : undefined;
 	const wireEfforts = siderenWireEfforts(capabilities);
+	// A reported vocabulary is the row's whole truth: an empty, `none`-only or
+	// unknown one clears the reference's ladder instead of regrowing a guessed one.
+	const reportedEfforts = Array.isArray(capabilities?.reasoning_efforts);
 	const efforts = THINKING_EFFORTS.filter(effort => wireEfforts.includes(effort));
 	const reasoning = capabilities ? capabilities.reasoning === true : (model.reasoning ?? false);
 	const thinking: ThinkingConfig | undefined =
 		reasoning && efforts.length > 0 ? { mode: "effort", efforts: [...efforts] } : undefined;
+	const compatPatch = {
+		...(reportedEfforts && { trustExplicitThinkingOnly: true }),
+		...(thinking &&
+			wireEfforts.includes(SIDEREN_WIRE_EFFORT_NONE) && { reasoningDisableMode: "none-effort" as const }),
+	};
 	return {
 		...model,
 		name: toModelName(meta.display_name, model.name),
 		reasoning,
-		...(thinking && { thinking }),
+		...(reportedEfforts ? { thinking } : thinking && { thinking }),
 		input: capabilities ? (capabilities.vision === true ? ["text", "image"] : ["text"]) : model.input,
 		...(typeof capabilities?.tools === "boolean" && { supportsTools: capabilities.tools }),
 		contextWindow: toPositiveNumber(record.context_window, model.contextWindow),
 		maxTokens: toPositiveNumber(record.max_output, model.maxTokens),
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		...(thinking &&
-			wireEfforts.includes(SIDEREN_WIRE_EFFORT_NONE) && {
-				compat: { ...model.compat, reasoningDisableMode: "none-effort" as const },
-			}),
+		...(Object.keys(compatPatch).length > 0 && { compat: { ...model.compat, ...compatPatch } }),
 	};
 }
 
@@ -4859,16 +4864,26 @@ function mapSiderenModel(
  * authoritative over the bundle.
  */
 export function siderenModelManagerOptions(config?: ModelManagerConfig): ModelManagerOptions<"openai-completions"> {
+	const defaultBaseUrl = getDefaultModelDiscoveryBaseUrl("sideren")!;
 	return {
 		...createOpenAICompatibleModelManagerOptions({
 			api: "openai-completions",
 			providerId: "sideren",
-			defaultBaseUrl: "https://api.sideren.io/v1",
+			defaultBaseUrl,
 			config,
 			requireApiKey: true,
 			dynamicModelsAuthoritative: true,
+			cacheProviderId: resolveModelCacheProviderId("sideren", {
+				apiKey: config?.apiKey,
+				baseUrl: config?.baseUrl ?? defaultBaseUrl,
+			}),
 			mapModel: mapSiderenModel,
 		}),
+		// A row's `capabilities.vision` and `capabilities.reasoning` are the
+		// deployment's answer, so a live downgrade is kept rather than OR-merged
+		// back from the seed.
+		dynamicInputAuthoritative: true,
+		dynamicReasoningAuthoritative: true,
 		staticModels: seedModels<"openai-completions">("sideren"),
 	};
 }
