@@ -231,6 +231,18 @@ provider "sideren" {
 		reasoning-disable-mode "none-effort"
 	}
 
+	// Sideren reads Qwen thinking from `reasoning_effort` and ignores Qwen-native
+	// `enable_thinking`. Qwen 3.8 27B advertises low/medium/xhigh and no off
+	// value (`none` still reasons, live 2026-10-26), so thinking-off sends its
+	// lowest effort.
+	class "qwen" {
+		thinking-format "openai"
+		reasoning-disable-mode "lowest-effort"
+	}
+	models "@sdn/qwen3.8-27b" {
+		thinking-efforts "low" "medium" "xhigh"
+	}
+
 	// Sideren serves GPT-5.4 with a 272K window (its `/v1/models` row), so the
 	// class-wide 1M window patch and uncapped long-context window do not apply.
 	class "openai" {

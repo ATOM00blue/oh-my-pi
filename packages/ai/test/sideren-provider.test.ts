@@ -9,6 +9,7 @@ import { Effort } from "@oh-my-pi/pi-catalog/effort";
 const deepseek = buildModel(
 	seedModels<"openai-completions">("sideren").find(model => model.id === "@sdn/deepseek-v4.1-flash-1017")!,
 );
+const qwen = buildModel(seedModels<"openai-completions">("sideren").find(model => model.id === "@sdn/qwen3.8-27b")!);
 const context: Context = {
 	systemPrompt: ["You are a coding assistant."],
 	messages: [{ role: "user", content: "hello", timestamp: 0 }],
@@ -41,6 +42,27 @@ describe("Sideren chat requests", () => {
 			expect.objectContaining({ role: "system" }),
 			expect.objectContaining({ role: "user" }),
 		]);
+	});
+
+	test.each([
+		{ options: { reasoning: Effort.Medium }, wireEffort: "medium" },
+		{ options: { disableReasoning: true }, wireEffort: "low" },
+	])("sends Qwen thinking for $options as reasoning_effort", async ({ options, wireEffort }) => {
+		let payload: Record<string, unknown> | undefined;
+		const controller = new AbortController();
+		controller.abort();
+		const stream = streamOpenAICompletions(qwen, context, {
+			...options,
+			apiKey: "sdn_test_key",
+			signal: controller.signal,
+			onPayload: body => {
+				payload = body as Record<string, unknown>;
+			},
+		});
+		await stream.result();
+		expect(payload?.reasoning_effort).toBe(wireEffort);
+		expect(payload).not.toHaveProperty("enable_thinking");
+		expect(payload).not.toHaveProperty("chat_template_kwargs");
 	});
 });
 

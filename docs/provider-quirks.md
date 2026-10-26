@@ -1674,7 +1674,7 @@ Sideren is an OpenAI-compatible inference gateway for coding agents at `https://
 
 ### Special casings
 - **Plan-scoped roster**: `/v1/models` is answered per key and marks each row with `sideren.access.allowed`. `siderenModelManagerOptions` drops rows the key's plan cannot call and `kind: "embedding"` rows, so `/model` never offers a model that answers `plan_upgrade_required`.
-- **Thinking**: each row publishes its accepted `reasoning_effort` vocabulary in `capabilities.reasoning_efforts`. Discovery builds the ladder from it; `none` is the thinking-off switch (`reasoningDisableMode: "none-effort"`), never a rung. Reasoning streams on `reasoning_content`.
+- **Thinking**: each row publishes its accepted `reasoning_effort` vocabulary in `capabilities.reasoning_efforts`. Discovery builds the ladder from it; `none` is the thinking-off switch (`reasoningDisableMode: "none-effort"`), never a rung, including on rows whose only value is `none`. Qwen rows use `reasoning_effort` too (Sideren ignores Qwen-native `enable_thinking`); Qwen 3.8 27B has no off value, so thinking-off sends its lowest effort. Reasoning streams on `reasoning_content`.
 - **Request dialect**: plain Chat Completions — `system` role, no `store`, output caps on `max_tokens` (`packages/catalog/src/compat/rules/providers/sideren.kdl`).
 
 ### Auth & usage

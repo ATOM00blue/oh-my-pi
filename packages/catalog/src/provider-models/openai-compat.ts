@@ -4839,9 +4839,11 @@ function mapSiderenModel(
 	const reasoning = capabilities ? capabilities.reasoning === true : (model.reasoning ?? false);
 	const thinking: ThinkingConfig | undefined =
 		reasoning && efforts.length > 0 ? { mode: "effort", efforts: [...efforts] } : undefined;
+	// The off switch follows the vocabulary even when no on-level survives, so a
+	// `none`-only row still turns reasoning off with `none`.
 	const compatPatch = {
 		...(reportedEfforts && { trustExplicitThinkingOnly: true }),
-		...(thinking &&
+		...(reasoning &&
 			wireEfforts.includes(SIDEREN_WIRE_EFFORT_NONE) && { reasoningDisableMode: "none-effort" as const }),
 	};
 	return {

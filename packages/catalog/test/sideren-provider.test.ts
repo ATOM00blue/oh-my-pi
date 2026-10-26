@@ -134,6 +134,7 @@ describe("Sideren model discovery", () => {
 		const model = buildModel(discovered!);
 		expect(model.thinking).toBeUndefined();
 		expect(model.compat?.trustExplicitThinkingOnly).toBe(true);
+		expect(model.compat?.reasoningDisableMode).toBe("none-effort");
 	});
 
 	test("keeps a live capability downgrade over the seed row", async () => {
